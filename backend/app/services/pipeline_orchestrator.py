@@ -211,6 +211,54 @@ def run_checkpoint_state_pipeline() -> dict:
     return result
 
 
+def run_compat_pipeline(
+    change_id: int | str | None = None,
+    *,
+    effective_boundary: int | float | None = None,
+    old_pipeline_backfill: bool = False,
+) -> dict:
+    """流式转换的改名兼容管道：读结构变更记录生成转换兼容数据批次。
+
+    未指定变更时取第一条字段改名记录；兼容结果与校验清单由
+    ``CompatibilityService`` 写入批次表并回写结构核对清单。
+    """
+    from app.services.compatibility import CompatibilityService
+
+    compat = CompatibilityService()
+    if change_id in (None, ""):
+        candidates = compat.change_candidates()
+        if not candidates:
+            result = {"ok": False, "message": "没有可用于兼容转换的字段改名记录"}
+            _wr("stream_compat", {"source": ["schema_evolve"], "target": "stream_transform", "payload": result})
+            return result
+        change_id = candidates[0]["id"]
+
+    batch, message = compat.run(
+        change_id=change_id,
+        effective_boundary=effective_boundary,
+        old_pipeline_backfill=old_pipeline_backfill,
+    )
+    if batch is None:
+        result = {"ok": False, "message": message}
+        _wr("stream_compat", {"source": ["schema_evolve"], "target": "stream_transform", "payload": result})
+        return result
+
+    result = {
+        "ok": True,
+        "message": message,
+        "批次号": batch["批次号"],
+        "旧字段": batch["旧字段"],
+        "新字段": batch["新字段"],
+        "统计": batch["统计"],
+        "聚合": batch["聚合"],
+        "字段版本依赖": batch["字段版本依赖"],
+        "数据库写入范围": batch["数据库写入范围"],
+        "生效边界": batch["生效边界"],
+    }
+    _wr("stream_compat", {"source": ["schema_evolve"], "target": "stream_transform", "payload": result})
+    return result
+
+
 def run_all_pipelines() -> dict:
     return {
         "source_cdc": run_source_cdc_pipeline(),

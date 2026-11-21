@@ -1,14 +1,14 @@
 """跨模块管道接口：触发执行并查询结果。"""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.services.pipeline_orchestrator import (
     run_all_pipelines, list_pipeline_results,
     run_source_cdc_pipeline, run_window_metric_pipeline,
     run_rule_router_pipeline, run_metric_sink_pipeline,
     run_quality_scan, run_partition_backpressure_pipeline,
-    run_checkpoint_state_pipeline,
+    run_checkpoint_state_pipeline, run_compat_pipeline,
 )
 
 router = APIRouter(prefix="/api/pipeline", tags=["管道编排"])
@@ -57,3 +57,14 @@ def trigger_partition_bp() -> dict:
 @router.post("/checkpoint-state")
 def trigger_checkpoint_state() -> dict:
     return {"ok": True, "result": run_checkpoint_state_pipeline()}
+
+
+@router.post("/stream-compat")
+def trigger_stream_compat(
+    change_id: int | str | None = Query(default=None),
+    effective_boundary: float | None = Query(default=None),
+    old_pipeline_backfill: bool = Query(default=False),
+) -> dict:
+    """流式转换读取结构变更记录生成兼容批次；省略 change_id 时取第一条字段改名记录。"""
+    return {"ok": True, "result": run_compat_pipeline(
+        change_id, effective_boundary=effective_boundary, old_pipeline_backfill=old_pipeline_backfill)}

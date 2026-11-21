@@ -68,6 +68,51 @@ npm run dev
 | 历史回放 | `replay_batch` | 回放任务 | 任务编号、数据源、起始时间 |
 | 分组分区 | `grp_partition` | 分组策略 | 策略编号、关联流、分区键 |
 
+## 结构变更期的兼容转换
+
+金额列从 `金额` 改名为 `实付金额` 之后，上游订单流里会同时出现纯旧列、纯新列、
+两列一致、两列冲突四种记录。兼容转换读取 `schema_evolve` 的结构变更记录，
+生成一份**转换兼容数据批次**，让旧报表（读旧列）和新报表（读新列）都能找到
+可实际读入的字段。
+
+- 规则实现：`backend/app/services/compatibility.py`
+- 接口：`backend/app/routers/compatibility.py`、`backend/app/routers/schema_evolve.py`
+- 页面：`frontend/src/views/schema_evolve/index.vue` 的“结构变更期兼容转换”面板
+- 样本：`backend/app/fixtures.py` 的 `MIGRATION_ORDER_RECORDS`（订单号 ORD-101 ~ ORD-110）
+- 预置改名变更：`SCHE-0002`（`金额` → `实付金额`，生效版本 `v2`）
+
+处理口径：
+
+| 输入形态 | 兼容结果 | 聚合 |
+| --- | --- | --- |
+| 纯旧列 | 旧版视图取原值，新版视图按同一金额推导 | 计入 |
+| 纯新列 | 新版视图取原值，旧版视图按同一金额推导 | 计入 |
+| 两列一致 | 两版视图都取原值 | 计入 |
+| 两列冲突 | 按原行标识写入待核对区，两版视图都不产出 | 跳过 |
+
+- 旧版视图保留历史订单的原列取值和字段版本（默认 `v1`），只对纯新列行做标注为“推导”的补值。
+- 校验结果回写到结构核对清单（`/api/schema_evolve/checks`，并落到结构变更记录的
+  `核对结果` / `兼容批次` / `待核对行数` 字段）。
+- 同一批次号重复执行按原行标识幂等：已确认的金额不会被写第二次，迁移中断后可以
+  用 `batch_no` 续做。
+- 批次记录 `字段版本依赖` 和 `数据库写入范围`（关联流、行键、写入字段、行数、位点范围、
+  每行写入次数）；`/api/compatibility/batches/{id}/rollback-trace` 可按原行标识追溯到原列。
+- `effective_boundary` 声明新旧字段的生效边界；旧流水线仍在补算时，边界两侧形态
+  异常的记录会列进 `生效边界.冲突明细`。
+
+主要接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/schema_evolve/compatibility/candidates` | 可做兼容转换的字段改名变更 |
+| POST | `/api/schema_evolve/compatibility/run` | 生成/续做兼容批次，回写核对清单 |
+| GET | `/api/schema_evolve/checks` | 结构核对清单 |
+| GET | `/api/schema_evolve/reviews` | 待核对区（两列冲突行） |
+| GET | `/api/compatibility/batches` | 兼容批次摘要 |
+| GET | `/api/compatibility/batches/{id}` | 批次明细（逐行两版视图、统计、依赖、写入范围） |
+| GET | `/api/compatibility/batches/{id}/rollback-trace` | 回滚追溯 |
+| POST | `/api/pipeline/stream-compat` | 从流式转换管道触发兼容批次生成 |
+
 ## 约定
 
 - 每个模块的前端页面在 `frontend/src/views/<模块>/index.vue`，后端接口在

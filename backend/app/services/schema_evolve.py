@@ -11,6 +11,7 @@ REQUIRED_FIELDS = ["变更编号", "关联流", "变更类型"]
 STATUS_ORDER = ["草稿", "待执行", "已生效", "已回滚"]
 ACTION_RULES = {"执行变更": "待执行", "标记生效": "已生效", "回滚变更": "已回滚"}
 NEGATIVE_ACTIONS = ["回滚变更"]
+CHECK_FIELDS = ["核对结果", "兼容批次", "待核对行数", "核对时间", "字段版本依赖", "数据库写入范围"]
 
 
 class SchemaEvolveService:
